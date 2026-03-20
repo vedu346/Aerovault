@@ -7,7 +7,7 @@ export default function CompanyLoginPage() {
             <Navbar />
             <div className="pt-24 pb-12 px-4 sm:px-6 lg:px-8">
                 <SingleLoginForm
-                    role="company"
+                    role="airline_admin"
                     title="Company Login"
                     description="Manage your flights and passengers"
                 />
