@@ -48,7 +48,7 @@ export function InvoiceView({ booking, flight, passengers, seats, company }: Inv
                         </div>
                         <div className="text-right">
                             <div className="text-2xl font-bold text-blue-600 mb-1">
-                                {company?.company_name || 'SkyWings Airlines'}
+                                {company?.company_name || 'Aerovault Airlines'}
                             </div>
                             <p className="text-sm text-gray-600">Professional Flight Services</p>
                         </div>
@@ -206,7 +206,7 @@ export function InvoiceView({ booking, flight, passengers, seats, company }: Inv
                         <div className="text-right">
                             <p className="text-gray-600 text-xs mb-2">Thank you for choosing our services!</p>
                             <p className="text-gray-500 text-xs">
-                                For support, contact: support@skywings.com
+                                For support, contact: support@aerovault.com
                             </p>
                             <p className="text-gray-400 text-xs mt-4">
                                 This is a computer-generated invoice and does not require a signature.

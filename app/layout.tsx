@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SkyWings — Flight Booking System",
-  description: "Book flights, track live status, and manage your travel with SkyWings Airlines.",
+  title: "Aerovault",
+  description: "Book flights, track live status, and manage your travel with Aerovault Airlines.",
 };
 
 export default function RootLayout({

@@ -82,7 +82,7 @@ export default function Navbar() {
                             <Plane className="h-6 w-6 text-white" />
                         </div>
                         <span className={`text-xl font-bold ${logoColor}`}>
-                            SkyWings
+                            Aerovault
                         </span>
                     </Link>
 
