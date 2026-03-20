@@ -1,3 +1,5 @@
+"use client"
+
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -48,21 +50,21 @@ export function FlightCard({ flight, onBook }: FlightCardProps) {
     const duration = calculateDuration(flight.departure_time, flight.arrival_time);
 
     return (
-        <Card className="hover:shadow-lg transition-all duration-200 border-l-4 border-l-blue-600 mb-4">
+        <Card className="group hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 border-none bg-white rounded-[2rem] overflow-hidden mb-6 shadow-sm border border-gray-100">
             <CardContent className="p-0">
                 <div className="p-6">
                     <div className="flex flex-col md:flex-row items-center justify-between gap-6">
 
                         {/* Airline Info & Status */}
-                        <div className="flex items-center gap-4 w-full md:w-1/4">
-                            <div className="bg-blue-50 p-3 rounded-full">
-                                <Plane className="h-6 w-6 text-blue-600" />
+                        <div className="flex items-center gap-5 w-full md:w-1/4">
+                            <div className="bg-blue-50 p-4 rounded-2xl group-hover:bg-blue-600 transition-all duration-300">
+                                <Plane className="h-6 w-6 text-blue-600 group-hover:text-white transition-colors" />
                             </div>
                             <div>
-                                <h3 className="font-bold text-lg text-gray-900">{companyName}</h3>
-                                <div className="flex items-center gap-2">
-                                    <p className="text-sm text-gray-500 font-mono">{flight.flight_number}</p>
-                                    <Badge variant={flight.status === 'cancelled' ? 'destructive' : 'secondary'} className="text-[10px] h-5">
+                                <h3 className="font-bold text-xl text-gray-900 leading-tight">{companyName}</h3>
+                                <div className="flex items-center gap-2 mt-1">
+                                    <p className="text-xs text-gray-400 font-mono tracking-wider">{flight.flight_number}</p>
+                                    <Badge variant={flight.status === 'cancelled' ? 'destructive' : 'secondary'} className="text-[10px] h-5 rounded-full px-2">
                                         {flight.status.toUpperCase()}
                                     </Badge>
                                 </div>
@@ -70,40 +72,41 @@ export function FlightCard({ flight, onBook }: FlightCardProps) {
                         </div>
 
                         {/* Itinerary */}
-                        <div className="flex items-center gap-4 w-full md:w-2/5 justify-center">
+                        <div className="flex items-center gap-6 w-full md:w-2/5 justify-center">
                             <div className="text-right">
-                                <p className="font-bold text-xl text-gray-900">{formatTime(flight.departure_time)}</p>
-                                <p className="text-sm text-gray-500 font-medium">{flight.source}</p>
+                                <p className="font-black text-2xl text-gray-900 leading-none">{formatTime(flight.departure_time)}</p>
+                                <p className="text-sm text-gray-500 font-bold uppercase tracking-tight mt-1">{flight.source}</p>
                             </div>
 
-                            <div className="flex flex-col items-center px-4 w-32">
-                                <p className="text-xs text-gray-400 mb-1">{duration}</p>
-                                <div className="w-full h-[2px] bg-gray-200 relative flex items-center justify-center">
-                                    <div className="w-2 h-2 rounded-full bg-gray-300 absolute left-0" />
-                                    <Plane className="h-3 w-3 text-blue-600 absolute" />
-                                    <div className="w-2 h-2 rounded-full bg-gray-300 absolute right-0" />
+                            <div className="flex flex-col items-center px-4 w-32 relative group/line">
+                                <p className="text-[10px] font-bold text-blue-500 mb-2 uppercase tracking-widest">{duration}</p>
+                                <div className="w-full h-[2px] bg-gradient-to-r from-transparent via-gray-200 to-transparent relative flex items-center justify-center transition-all group-hover/line:via-blue-300">
+                                    <div className="w-2 h-2 rounded-full border-2 border-gray-200 bg-white absolute left-0" />
+                                    <Plane className="h-4 w-4 text-gray-300 absolute transform rotate-90 transition-all group-hover/line:text-blue-500" />
+                                    <div className="w-2 h-2 rounded-full border-2 border-gray-200 bg-white absolute right-0" />
                                 </div>
-                                <p className="text-[10px] text-gray-400 mt-1">Non-stop</p>
+                                <p className="text-[10px] text-gray-400 mt-2 font-medium uppercase tracking-widest">Non-stop</p>
                             </div>
 
                             <div className="text-left">
-                                <p className="font-bold text-xl text-gray-900">{formatTime(flight.arrival_time)}</p>
-                                <p className="text-sm text-gray-500 font-medium">{flight.destination}</p>
+                                <p className="font-black text-2xl text-gray-900 leading-none">{formatTime(flight.arrival_time)}</p>
+                                <p className="text-sm text-gray-500 font-bold uppercase tracking-tight mt-1">{flight.destination}</p>
                             </div>
                         </div>
 
                         {/* Price & Action */}
-                        <div className="flex items-center justify-between md:justify-end gap-6 w-full md:w-1/3 border-t md:border-t-0 pt-4 md:pt-0 mt-4 md:mt-0">
+                        <div className="flex items-center justify-between md:justify-end gap-8 w-full md:w-1/3 border-t md:border-t-0 pt-6 md:pt-0 mt-2 md:mt-0">
                             <div className="text-right">
-                                <p className="text-xs text-gray-400 mb-0.5">Price per person</p>
-                                <p className="text-2xl font-bold text-blue-600">₹{flight.price}</p>
+                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Per traveler</p>
+                                <p className="text-3xl font-black text-gray-900">₹{flight.price}</p>
                             </div>
                             <Button
                                 onClick={() => onBook(flight)}
-                                className="bg-blue-600 hover:bg-blue-700 text-white px-8 h-12 text-base shadow-lg shadow-blue-200"
+                                variant="premium"
+                                className="px-10 h-14 text-lg font-bold rounded-2xl shadow-xl shadow-blue-500/20"
                                 disabled={flight.status !== 'scheduled'}
                             >
-                                {flight.status === 'scheduled' ? 'Book Now' : 'Unavailable'}
+                                {flight.status === 'scheduled' ? 'Select' : 'Full'}
                             </Button>
                         </div>
 

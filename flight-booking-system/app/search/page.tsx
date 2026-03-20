@@ -48,7 +48,8 @@ function SearchResults() {
         }
 
         fetchFlights()
-    }, [source, destination, date, supabase])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [source, destination, date])
 
     const handleBook = (flight: any) => {
         const passengers = searchParams.get("passengers") || "1"
@@ -89,7 +90,7 @@ function SearchResults() {
 
 export default function SearchPage() {
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen bg-gray-50 pt-16">
             <Navbar />
             <Suspense fallback={<div className="flex h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>}>
                 <SearchResults />

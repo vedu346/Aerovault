@@ -19,7 +19,7 @@ export function LoginForm() {
 
     const handleLogin = async (role: string) => {
         setLoading(true)
-        const { error } = await supabase.auth.signInWithPassword({
+        const { data: authData, error } = await supabase.auth.signInWithPassword({
             email,
             password,
         })
@@ -27,11 +27,19 @@ export function LoginForm() {
         if (error) {
             alert(error.message) // Replace with proper toast
             setLoading(false)
-        } else {
-            // Redirect based on role (mock logic strictly for now, usually role is fetched from DB)
-            if (role === 'admin') router.push('/admin/dashboard')
-            else if (role === 'company') router.push('/company/dashboard')
-            else router.push('/dashboard')
+        } else if (authData?.user) {
+            // Fetch real role from DB
+            const { data: profile } = await supabase
+                .from('users')
+                .select('role')
+                .eq('id', authData.user.id)
+                .single()
+
+            const dbRole = profile?.role || 'user'
+
+            if (dbRole === 'admin') router.push('/admin/dashboard')
+            else if (dbRole === 'airline_admin') router.push('/airline/dashboard')
+            else router.push('/user')
 
             router.refresh()
         }

@@ -37,14 +37,34 @@ export async function updateSession(request: NextRequest) {
         data: { user },
     } = await supabase.auth.getUser()
 
-    if (
-        !user &&
-        !request.nextUrl.pathname.startsWith('/login') &&
-        !request.nextUrl.pathname.startsWith('/auth') &&
-        request.nextUrl.pathname !== '/'
-    ) {
-        // no user, potentially redirect to login - but allow public pages
-        // for now we allow access, specific route guards will handle roles
+    if (user) {
+        const { data: profile } = await supabase
+            .from('users')
+            .select('role')
+            .eq('id', user.id)
+            .single()
+
+        const role = profile?.role || 'user'
+        const pathname = request.nextUrl.pathname
+
+        if (pathname.startsWith('/admin') && role !== 'admin') {
+            return NextResponse.redirect(new URL('/', request.url))
+        }
+        if (pathname.startsWith('/airline') && role !== 'airline_admin') {
+            return NextResponse.redirect(new URL('/', request.url))
+        }
+        if (pathname.startsWith('/user') && role !== 'user') {
+            return NextResponse.redirect(new URL('/', request.url))
+        }
+    } else {
+        const pathname = request.nextUrl.pathname
+        if (
+            pathname.startsWith('/admin') ||
+            pathname.startsWith('/airline') ||
+            pathname.startsWith('/user')
+        ) {
+            return NextResponse.redirect(new URL('/login', request.url))
+        }
     }
 
     return supabaseResponse

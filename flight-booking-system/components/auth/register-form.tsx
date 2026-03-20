@@ -25,7 +25,7 @@ export function RegisterForm() {
             options: {
                 data: {
                     full_name: fullName,
-                    role: 'customer', // Default role
+                    role: 'user', // Default role
                 },
             },
         })

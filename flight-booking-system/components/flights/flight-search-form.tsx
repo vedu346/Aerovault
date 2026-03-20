@@ -64,22 +64,22 @@ export function FlightSearchForm() {
     }
 
     return (
-        <div className="w-full max-w-5xl mx-auto p-6">
+        <div className="w-full max-w-5xl mx-auto">
             <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
                         {/* Source */}
-                        <div className="md:col-span-3">
+                        <div className="md:col-span-1">
                             <FormField
                                 control={form.control}
                                 name="source"
                                 render={({ field }) => (
-                                    <FormItem className="relative">
-                                        <FormLabel className="sr-only">From</FormLabel>
+                                    <FormItem className="relative flex flex-col">
+                                        <FormLabel className="text-[10px] font-black text-gray-500 uppercase tracking-[0.15em] ml-1 mb-1.5 leading-none">From</FormLabel>
                                         <FormControl>
-                                            <div className="relative">
-                                                <PlaneTakeoff className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-                                                <Input placeholder="From (City)" className="pl-10 h-12 bg-white/50 border-gray-200 focus:bg-white transition-all" {...field} />
+                                            <div className="relative group">
+                                                <PlaneTakeoff className="absolute left-3 top-4 h-5 w-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+                                                <Input placeholder="City" className="pl-10 h-14 bg-gray-50/50 border-gray-200 focus:bg-white focus:ring-4 focus:ring-blue-500/10 rounded-2xl transition-all font-medium" {...field} />
                                             </div>
                                         </FormControl>
                                         <FormMessage />
@@ -89,17 +89,17 @@ export function FlightSearchForm() {
                         </div>
 
                         {/* Destination */}
-                        <div className="md:col-span-3">
+                        <div className="md:col-span-1">
                             <FormField
                                 control={form.control}
                                 name="destination"
                                 render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel className="sr-only">To</FormLabel>
+                                    <FormItem className="flex flex-col">
+                                        <FormLabel className="text-[10px] font-black text-gray-500 uppercase tracking-[0.15em] ml-1 mb-1.5 leading-none">To</FormLabel>
                                         <FormControl>
-                                            <div className="relative">
-                                                <PlaneLanding className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-                                                <Input placeholder="To (City)" className="pl-10 h-12 bg-white/50 border-gray-200 focus:bg-white transition-all" {...field} />
+                                            <div className="relative group">
+                                                <PlaneLanding className="absolute left-3 top-4 h-5 w-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+                                                <Input placeholder="City" className="pl-10 h-14 bg-gray-50/50 border-gray-200 focus:bg-white focus:ring-4 focus:ring-blue-500/10 rounded-2xl transition-all font-medium" {...field} />
                                             </div>
                                         </FormControl>
                                         <FormMessage />
@@ -109,18 +109,18 @@ export function FlightSearchForm() {
                         </div>
 
                         {/* Date Picker (Native) */}
-                        <div className="md:col-span-3">
+                        <div className="md:col-span-1">
                             <FormField
                                 control={form.control}
                                 name="date"
                                 render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel className="sr-only">Date</FormLabel>
+                                    <FormItem className="flex flex-col">
+                                        <FormLabel className="text-[10px] font-black text-gray-500 uppercase tracking-[0.15em] ml-1 mb-1.5 leading-none">Departure</FormLabel>
                                         <FormControl>
-                                            <div className="relative">
+                                            <div className="relative group">
                                                 <Input
                                                     type="date"
-                                                    className="h-12 bg-white/50 border-gray-200 focus:bg-white transition-all block w-full"
+                                                    className="h-14 bg-gray-50/50 border-gray-200 focus:bg-white focus:ring-4 focus:ring-blue-500/10 rounded-2xl transition-all block w-full font-medium"
                                                     {...field}
                                                 />
                                             </div>
@@ -132,9 +132,10 @@ export function FlightSearchForm() {
                         </div>
 
                         {/* Search Button */}
-                        <div className="md:col-span-3">
-                            <Button type="submit" size="lg" className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white font-bold text-lg shadow-lg shadow-blue-500/30 transition-all">
-                                <Search className="mr-2 h-5 w-5" /> Search Flights
+                        <div className="md:col-span-1 flex flex-col justify-end h-full">
+                            <div className="h-4 hidden md:block" /> {/* Alignment spacer for labels */}
+                            <Button type="submit" variant="premium" className="w-full h-14 rounded-2xl text-lg font-bold shadow-xl shadow-blue-500/20">
+                                <Search className="mr-2 h-6 w-6" /> Search
                             </Button>
                         </div>
                     </div>

@@ -63,7 +63,7 @@ export default async function InvoicePage({ params }: InvoicePageProps) {
                     <div className="text-center">
                         <h1 className="text-2xl font-bold text-gray-900 mb-4">Invoice Not Found</h1>
                         <p className="text-gray-600 mb-6">The invoice you're looking for doesn't exist or you don't have access to it.</p>
-                        <Link href="/dashboard/my-tickets">
+                        <Link href="/user/my-tickets">
                             <Button className="bg-blue-600 hover:bg-blue-700 text-white">
                                 Back to My Tickets
                             </Button>
@@ -84,7 +84,7 @@ export default async function InvoicePage({ params }: InvoicePageProps) {
             <Navbar />
             <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8 pt-24">
                 <div className="px-4 mb-6 print:hidden">
-                    <Link href="/dashboard/my-tickets">
+                    <Link href="/user/my-tickets">
                         <Button variant="ghost" className="text-gray-700 hover:text-blue-600">
                             <ArrowLeft className="w-4 h-4 mr-2" />
                             Back to My Tickets

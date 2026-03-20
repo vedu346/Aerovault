@@ -217,7 +217,7 @@ export function InvoiceView({ booking, flight, passengers, seats, company }: Inv
             </div>
 
             {/* Print Styles */}
-            <style jsx global>{`
+            <style dangerouslySetInnerHTML={{ __html: `
                 @media print {
                     body {
                         print-color-adjust: exact;
@@ -233,7 +233,7 @@ export function InvoiceView({ booking, flight, passengers, seats, company }: Inv
                         margin: 1cm;
                     }
                 }
-            `}</style>
+            `}} />
         </div>
     )
 }

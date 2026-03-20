@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Plus } from "lucide-react"
 import { FlightActions } from "@/components/flights/flight-actions"
+export const dynamic = 'force-dynamic'
 
-export default async function CompanyDashboard() {
+export default async function AirlineDashboard() {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
@@ -14,23 +15,20 @@ export default async function CompanyDashboard() {
         return <div>Please log in</div>
     }
 
-    const { data: company } = await supabase
-        .from('flight_companies')
-        .select('id')
-        .eq('user_id', user.id)
+    // 1. Fetch user's profile to get their airline_id (company ID)
+    const { data: profile } = await supabase
+        .from('users')
+        .select('airline_id')
+        .eq('id', user.id)
         .single()
 
-    let flights: any[] = []
+    const { data } = await supabase
+        .from('flights')
+        .select('*')
+        .eq('airline_id', profile?.airline_id || '00000000-0000-0000-0000-000000000000')
+        .order('created_at', { ascending: false })
 
-    if (company) {
-        const { data } = await supabase
-            .from('flights')
-            .select('*')
-            .eq('company_id', company.id)
-            .order('created_at', { ascending: false })
-
-        flights = data || []
-    }
+    const flights = data || []
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -38,7 +36,7 @@ export default async function CompanyDashboard() {
             <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8 pt-24">
                 <div className="flex justify-between items-center px-4 mb-6">
                     <h1 className="text-3xl font-bold text-gray-900">Airline Dashboard</h1>
-                    <Link href="/company/flights/new">
+                    <Link href="/airline/flights/new">
                         <Button className="bg-blue-600 hover:bg-blue-700">
                             <Plus className="mr-2 h-4 w-4" /> Add New Flight
                         </Button>

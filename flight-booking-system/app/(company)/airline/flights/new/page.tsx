@@ -39,30 +39,14 @@ export default function NewFlightPage() {
     const supabase = createClient()
 
     useEffect(() => {
-        async function getCompany() {
+        async function checkUser() {
             const { data: { user } } = await supabase.auth.getUser()
             if (!user) {
-                router.push('/login/company')
-                return
-            }
-
-            const { data, error } = await supabase
-                .from('flight_companies')
-                .select('id')
-                .eq('user_id', user.id)
-                .single()
-
-            if (data) {
-                setCompanyId(data.id)
-            } else {
-                // Don't redirect immediately so user can see the alert, 
-                // but actually if we just created the company it should work.
-                // For now, let's just log.
-                console.log("No company found for user")
+                router.push('/login')
             }
         }
-        getCompany()
-    }, [router, supabase])
+        checkUser()
+    }, [router, supabase.auth])
 
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
@@ -79,11 +63,25 @@ export default function NewFlightPage() {
     })
 
     async function onSubmit(values: z.infer<typeof formSchema>) {
-        if (!companyId) return
-
         setLoading(true)
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return
+
+        // 1. Fetch user's profile to get their airline_id (company ID)
+        const { data: profile } = await supabase
+            .from('users')
+            .select('airline_id')
+            .eq('id', user.id)
+            .single()
+
+        if (!profile?.airline_id) {
+            alert('Error: You are not assigned to an airline.')
+            setLoading(false)
+            return
+        }
+
         const { error } = await supabase.from('flights').insert({
-            company_id: companyId,
+            airline_id: profile.airline_id,
             flight_number: values.flight_number,
             source: values.departure_city,
             destination: values.arrival_city,
@@ -100,7 +98,7 @@ export default function NewFlightPage() {
         if (error) {
             alert('Error adding flight: ' + error.message)
         } else {
-            router.push('/company/dashboard')
+            router.push('/airline/dashboard')
             router.refresh()
         }
     }

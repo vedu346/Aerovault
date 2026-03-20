@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, Fragment } from "react"
 import { createClient } from "@/utils/supabase/client"
 import { Loader2 } from "lucide-react"
 
@@ -95,11 +95,14 @@ export function SeatMap({ flightId, passengersCount, onSelectionChange }: SeatMa
 
         const currentStatus = seatStatuses[seatNum]
 
-        // If locked/booked by someone else
+        // Cannot toggle seats that are already permanently booked by anyone (including this user)
+        if (currentStatus?.status === 'booked') return
+
+        // If locked by someone else
         if (currentStatus && currentStatus.user_id !== userId) return
 
         // If I already have it locked -> Unlock it
-        if (currentStatus && currentStatus.user_id === userId) {
+        if (currentStatus && currentStatus.user_id === userId && currentStatus.status === 'locked') {
             // Deselect
             const { error } = await supabase
                 .from('flight_seats')
@@ -183,47 +186,51 @@ export function SeatMap({ flightId, passengersCount, onSelectionChange }: SeatMa
 
             <div className="flex flex-col gap-2 items-center">
                 {/* Headers */}
-                <div className="grid grid-cols-7 gap-2 w-full mb-2">
+                <div className="grid grid-cols-8 gap-2 w-full mb-2">
                     <div className="text-center font-bold text-gray-400">#</div>
                     {SEATS_PER_ROW.map((col, i) => (
-                        <div key={col} className={`text-center font-bold text-gray-400 ${i === 3 ? 'ml-4' : ''}`}>
-                            {col}
-                        </div>
+                        <Fragment key={col}>
+                            {i === 3 && <div className="w-4" aria-hidden="true" />}
+                            <div className="text-center font-bold text-gray-400">
+                                {col}
+                            </div>
+                        </Fragment>
                     ))}
                 </div>
 
                 {Array.from({ length: ROWS }).map((_, r) => {
                     const rowNum = r + 1
                     return (
-                        <div key={rowNum} className="grid grid-cols-7 gap-2 w-full">
+                        <div key={rowNum} className="grid grid-cols-8 gap-2 w-full">
                             <div className="flex items-center justify-center text-sm font-medium text-gray-400">
                                 {rowNum}
                             </div>
                             {SEATS_PER_ROW.map((col, i) => {
                                 const seatNum = `${rowNum}${col}`
                                 const status = seatStatuses[seatNum]
-                                const isMine = status?.user_id === userId
-                                const isBooked = status && !isMine
-                                const isSelected = isMine
+                                
+                                const isBooked = status?.status === 'booked' || (status?.status === 'locked' && status.user_id !== userId)
+                                const isSelected = status?.status === 'locked' && status.user_id === userId
 
                                 return (
-                                    <button
-                                        key={seatNum}
-                                        onClick={() => toggleSeat(seatNum)}
-                                        disabled={!!isBooked}
-                                        className={`
-                                            h-10 w-full rounded border transition-colors relative
-                                            ${i === 3 ? 'ml-4' : ''} /* Aisle gap */
-                                            ${isBooked
-                                                ? 'bg-gray-200 border-gray-200 text-gray-400 cursor-not-allowed'
-                                                : isSelected
-                                                    ? 'bg-green-500 border-green-600 text-white shadow-sm'
-                                                    : 'bg-white border-gray-300 hover:border-blue-500 hover:bg-blue-50 text-gray-700'
-                                            }
-                                        `}
-                                    >
-                                        <span className="text-xs">{col}</span>
-                                    </button>
+                                    <Fragment key={seatNum}>
+                                        {i === 3 && <div className="w-4" aria-hidden="true" />}
+                                        <button
+                                            onClick={() => toggleSeat(seatNum)}
+                                            disabled={!!isBooked}
+                                            className={`
+                                                h-10 w-full rounded border transition-colors relative
+                                                ${isBooked
+                                                    ? 'bg-gray-200 border-gray-200 text-gray-400 cursor-not-allowed'
+                                                    : isSelected
+                                                        ? 'bg-green-500 border-green-600 text-white shadow-sm'
+                                                        : 'bg-white border-gray-300 hover:border-blue-500 hover:bg-blue-50 text-gray-700'
+                                                }
+                                            `}
+                                        >
+                                            <span className="text-xs">{col}</span>
+                                        </button>
+                                    </Fragment>
                                 )
                             })}
                         </div>

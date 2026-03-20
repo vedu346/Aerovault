@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Loader2 } from "lucide-react"
 
 interface SingleLoginFormProps {
-    role: 'customer' | 'company' | 'admin';
+    role: 'user' | 'airline_admin' | 'admin';
     title: string;
     description: string;
 }
@@ -33,9 +33,21 @@ export function SingleLoginForm({ role, title, description }: SingleLoginFormPro
             alert(error.message)
             setLoading(false)
         } else {
-            if (role === 'admin') router.push('/admin/dashboard')
-            else if (role === 'company') router.push('/company/dashboard')
-            else router.push('/dashboard')
+            // Fetch real role from DB
+            const { data: { user } } = await supabase.auth.getUser()
+            if (!user) return
+
+            const { data: profile } = await supabase
+                .from('users')
+                .select('role')
+                .eq('id', user.id)
+                .single()
+
+            const dbRole = profile?.role || 'user'
+
+            if (dbRole === 'admin') router.push('/admin/dashboard')
+            else if (dbRole === 'airline_admin') router.push('/airline/dashboard')
+            else router.push('/user')
 
             router.refresh()
         }
@@ -54,7 +66,7 @@ export function SingleLoginForm({ role, title, description }: SingleLoginFormPro
                         <Input
                             id="email"
                             type="email"
-                            placeholder={role === 'admin' ? 'admin@bsw.com' : role === 'company' ? 'airline@company.com' : 'name@example.com'}
+                            placeholder={role === 'admin' ? 'admin@bsw.com' : role === 'airline_admin' ? 'airline@company.com' : 'name@example.com'}
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                         />

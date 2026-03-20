@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 import Navbar from "@/components/navbar"
 import { BookingWizard } from "@/components/booking/booking-wizard"
 import { Loader2 } from "lucide-react"
+import { Suspense } from "react"
 
 interface BookFlightPageProps {
     params: Promise<{
@@ -42,9 +43,11 @@ export default async function BookFlightPage({ params }: BookFlightPageProps) {
     }
 
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen bg-gray-50 pt-20">
             <Navbar />
-            <BookingWizard flight={flight} currentUser={user} />
+            <Suspense fallback={<div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>}>
+                <BookingWizard flight={flight} currentUser={user} />
+            </Suspense>
         </div>
     )
 }

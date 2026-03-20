@@ -46,17 +46,19 @@ export default function TrackerPage() {
                 const data = await res.json()
 
                 if (data.data && Array.isArray(data.data)) {
-                    const apiFlights: FlightStatus[] = data.data.map((f: any) => ({
-                        id: f.flight.iata,
-                        flight_number: f.flight.iata,
-                        airline: f.airline.name,
-                        source: f.departure.airport,
-                        destination: f.arrival.airport,
-                        status: f.flight_status === 'active' ? 'In Air' : f.flight_status === 'scheduled' ? 'Scheduled' : 'Landed',
-                        departure_time: new Date(f.departure.scheduled).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                        arrival_time: new Date(f.arrival.scheduled).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    }))
-                    setFlights(apiFlights)
+                    const apiFlights: FlightStatus[] = data.data
+                        .filter((f: any) => f.flight?.iata && f.airline?.name && f.departure?.airport && f.arrival?.airport)
+                        .map((f: any) => ({
+                            id: f.flight.iata,
+                            flight_number: f.flight.iata,
+                            airline: f.airline.name,
+                            source: f.departure.airport,
+                            destination: f.arrival.airport,
+                            status: f.flight_status === 'active' ? 'In Air' : f.flight_status === 'scheduled' ? 'Scheduled' : 'Landed',
+                            departure_time: new Date(f.departure.scheduled).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                            arrival_time: new Date(f.arrival.scheduled).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                        }))
+                    if (apiFlights.length > 0) setFlights(apiFlights)
                 }
             } catch (error) {
                 console.log("Using demo data due to API error/limit")
@@ -80,6 +82,20 @@ export default function TrackerPage() {
         }
     }
 
+    // Render a loading skeleton during SSR to prevent Dark Reader hydration mismatch
+    if (!mounted) {
+        return (
+            <div className="min-h-screen bg-gray-50/50">
+                <Navbar />
+                <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 pt-24">
+                    <div className="flex justify-center items-center h-64">
+                        <p className="text-gray-400 text-lg">Loading Flight Tracker...</p>
+                    </div>
+                </main>
+            </div>
+        )
+    }
+
     return (
         <div className="min-h-screen bg-gray-50/50">
             <Navbar />
@@ -100,7 +116,7 @@ export default function TrackerPage() {
                     </div>
                     <div className="flex items-center gap-2 text-sm text-gray-500 bg-white px-3 py-1.5 rounded-md border shadow-sm">
                         <RefreshCw className="h-3 w-3 animate-spin" />
-                        Updated: {mounted ? lastUpdated.toLocaleTimeString() : "Loading..."}
+                        Updated: {lastUpdated.toLocaleTimeString()}
                     </div>
                 </div>
 
@@ -117,7 +133,7 @@ export default function TrackerPage() {
                                 <div className="flex flex-col md:flex-row items-center justify-between gap-6">
                                     <div className="flex items-center gap-4 w-full md:w-1/4">
                                         <div className="h-10 w-10 flex items-center justify-center rounded-full bg-blue-100 text-blue-700 font-bold">
-                                            {flight.flight_number.substring(0, 2)}
+                                            {(flight.flight_number ?? '??').substring(0, 2)}
                                         </div>
                                         <div>
                                             <p className="font-bold text-lg">{flight.flight_number}</p>
