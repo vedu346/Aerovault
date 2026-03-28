@@ -1,36 +1,71 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Aerovault Monorepo
 
-## Getting Started
+This repository is now organized as a clean monorepo with clear frontend/backend separation.
 
-First, run the development server:
+## Project structure
+
+```text
+project-root/
+├── frontend/            # Next.js app (UI + app route handlers)
+│   ├── public/
+│   ├── src/
+│   │   ├── app/
+│   │   ├── components/
+│   │   ├── pages/
+│   │   ├── styles/
+│   │   ├── assets/
+│   │   ├── utils/
+│   │   └── lib/
+│   └── package.json
+├── backend/             # Backend scripts/services and future API layering
+│   ├── src/
+│   │   ├── routes/
+│   │   ├── controllers/
+│   │   ├── models/
+│   │   ├── middleware/
+│   │   ├── services/
+│   │   └── config/
+│   └── package.json
+├── database/
+│   ├── migrations/
+│   └── schema/
+├── docs/
+├── .env / .env.local
+└── README.md
+```
+
+## Why this layout
+
+- **Frontend** keeps all Next.js runtime code and static assets in one workspace.
+- **Backend** isolates operational scripts and provides expansion points for dedicated services.
+- **Database** separates migration/schema assets from application code.
+- **Docs** stores architecture and maintenance notes.
+
+See `docs/reorganization-notes.md` for move-by-move details.
+
+## Getting started
+
+Install dependencies from the repo root:
+
+```bash
+npm install
+```
+
+Run frontend dev server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Build frontend:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run build
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Run backend bootstrap scripts:
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run backend:setup-accounts
+npm run backend:seed-roles
+```

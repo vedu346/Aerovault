@@ -1,0 +1,18 @@
+{
+  "name": "aerovault-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend services and account bootstrap scripts for Aerovault",
+  "scripts": {
+    "setup-accounts": "node src/services/account-bootstrap/setup-accounts.js",
+    "seed-roles": "node src/services/account-bootstrap/seed-roles.js",
+    "create-demo-user": "node src/services/account-bootstrap/create-demo-user.js",
+    "verify-login": "node src/services/account-bootstrap/verify-login.js",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.93.1",
+    "dotenv": "^17.2.3"
+  },
+  "type": "commonjs"
+}
