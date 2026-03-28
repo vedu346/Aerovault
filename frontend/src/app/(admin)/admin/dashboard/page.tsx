@@ -1,9 +1,11 @@
 import { createClient } from "@/utils/supabase/server"
 import { redirect } from "next/navigation"
 import Navbar from "@/components/navbar"
+import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Users, Plane, CreditCard, Activity, Shield, Ticket, PlusCircle } from "lucide-react"
+import { Users, Plane, CreditCard, Activity, Shield, Ticket, Brain } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { 
     DeleteUserButton, 
     UpdateUserRoleSelect, 
@@ -82,7 +84,14 @@ export default async function AdminDashboard() {
             <Navbar />
             <main className="relative max-w-7xl mx-auto py-6 sm:px-6 lg:px-8 pt-24 z-10">
                 <div className="px-4 py-6 sm:px-0">
-                    <h1 className="text-3xl font-extrabold text-white mb-8 tracking-tight drop-shadow-lg">Admin Dashboard</h1>
+                    <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
+                        <h1 className="text-3xl font-extrabold text-white tracking-tight drop-shadow-lg">Admin Dashboard</h1>
+                        <Link href="/admin/ai-training">
+                            <Button className="gap-2 bg-white/90 text-slate-900 hover:bg-white">
+                                <Brain className="h-4 w-4" /> AI Training
+                            </Button>
+                        </Link>
+                    </div>
 
                     {/* Stats Grid */}
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
