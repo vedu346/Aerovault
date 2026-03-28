@@ -1,22 +1,5 @@
 {
   "compilerOptions": {
-<<<<<<< HEAD
-    "target": "ES2020",
-    "module": "CommonJS",
-    "moduleResolution": "node",
-    "outDir": "dist",
-    "rootDir": "src",
-    "allowJs": true,
-    "checkJs": false,
-    "declaration": false,
-    "sourceMap": true,
-    "esModuleInterop": true,
-    "resolveJsonModule": true,
-    "strict": false,
-    "skipLibCheck": true
-  },
-  "include": ["src/**/*"],
-=======
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
@@ -28,6 +11,5 @@
     "forceConsistentCasingInFileNames": true
   },
   "include": ["src/**/*.ts"],
->>>>>>> origin/main
   "exclude": ["node_modules", "dist"]
 }

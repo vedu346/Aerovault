@@ -25,6 +25,7 @@ export function SeatMap({ flightId, passengersCount, onSelectionChange }: SeatMa
     const [seatStatuses, setSeatStatuses] = useState<Record<string, SeatStatus>>({})
     const [mySeats, setMySeats] = useState<string[]>([])
     const [userId, setUserId] = useState<string | null>(null)
+    const [booking, setBooking] = useState(false)
 
     useEffect(() => {
         async function init() {
@@ -92,6 +93,8 @@ export function SeatMap({ flightId, passengersCount, onSelectionChange }: SeatMa
             alert("Please login to select seats")
             return
         }
+        
+        if (booking) return;
 
         const currentStatus = seatStatuses[seatNum]
 
@@ -129,38 +132,49 @@ export function SeatMap({ flightId, passengersCount, onSelectionChange }: SeatMa
                 return
             }
 
-            // Optimistic update? No, lock is critical. Wait for result.
-            // Or render optimistic "locking..." spinner?
+            setBooking(true);
+            try {
+                const res = await fetch("/api/book-seat", {
+                    method: "POST",
+                    body: JSON.stringify({ flightId, seatNum, userId }),
+                    headers: {
+                        "Content-Type": "application/json"
+                    }
+                });
 
-            const { error } = await supabase
-                .from('flight_seats')
-                .insert({
-                    flight_id: flightId,
-                    seat_number: seatNum,
-                    status: 'locked',
-                    user_id: userId,
-                    locked_until: new Date(Date.now() + 10 * 60 * 1000).toISOString() // 10 mins
-                })
+                const data = await res.json();
 
-            if (error) {
-                alert("This seat was just taken!")
-                // Refresh map
-                const { data } = await supabase
-                    .from('flight_seats')
-                    .select('*')
-                    .eq('flight_id', flightId)
-                if (data) {
-                    const map: Record<string, SeatStatus> = {}
-                    data.forEach((s: any) => map[s.seat_number] = s)
-                    setSeatStatuses(map)
+                if (!res.ok) {
+                    // Show specific error messages based on status
+                    if (res.status === 409) {
+                         alert("This seat was just taken by another passenger.")
+                    } else {
+                         alert(data.message || "Booking failed. Please try again.")
+                    }
+                    
+                    // Refresh map to get sync'd state
+                    const { data: refreshData } = await supabase
+                        .from('flight_seats')
+                        .select('*')
+                        .eq('flight_id', flightId)
+                    if (refreshData) {
+                        const map: Record<string, SeatStatus> = {}
+                        refreshData.forEach((s: any) => map[s.seat_number] = s)
+                        setSeatStatuses(map)
+                    }
+                } else {
+                    const newStatus: SeatStatus = { seat_number: seatNum, status: 'locked', user_id: userId }
+                    setSeatStatuses(prev => ({ ...prev, [seatNum]: newStatus }))
+
+                    const nextMySeats = [...mySeats, seatNum]
+                    setMySeats(nextMySeats)
+                    onSelectionChange(nextMySeats)
                 }
-            } else {
-                const newStatus: SeatStatus = { seat_number: seatNum, status: 'locked', user_id: userId }
-                setSeatStatuses(prev => ({ ...prev, [seatNum]: newStatus }))
-
-                const nextMySeats = [...mySeats, seatNum]
-                setMySeats(nextMySeats)
-                onSelectionChange(nextMySeats)
+            } catch (err) {
+                console.error("Booking error:", err);
+                alert("Booking failed. Please try again.");
+            } finally {
+                setBooking(false);
             }
         }
     }
@@ -217,7 +231,7 @@ export function SeatMap({ flightId, passengersCount, onSelectionChange }: SeatMa
                                         {i === 3 && <div className="w-4" aria-hidden="true" />}
                                         <button
                                             onClick={() => toggleSeat(seatNum)}
-                                            disabled={!!isBooked}
+                                            disabled={!!isBooked || booking}
                                             className={`
                                                 h-10 w-full rounded border transition-colors relative
                                                 ${isBooked
