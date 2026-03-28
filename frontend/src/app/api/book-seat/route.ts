@@ -27,7 +27,8 @@ export async function POST(request: Request) {
         // Let's log things as instructed
         console.log("Booking result data:", data)
         if (error) {
-            console.log("Booking error message:", error.message)
+            console.error("Full Supabase insert error:", JSON.stringify(error, null, 2))
+            
             // Error code 23505 is unique violation in Postgres
             if (error.code === '23505') {
                 return NextResponse.json({
@@ -35,6 +36,15 @@ export async function POST(request: Request) {
                     message: "Seat already booked"
                 }, { status: 409 })
             }
+            
+            // Error code 42501 is RLS violation
+            if (error.code === '42501') {
+                 return NextResponse.json({
+                     success: false,
+                     message: "Permission denied (RLS violation). You must be logged in or verify your role."
+                 }, { status: 403 })
+            }
+            
             throw error
         }
 
