@@ -52,7 +52,7 @@ export default async function AdminDashboard() {
             flight:flights(flight_number, source, destination, departure_time, price, company:flight_companies(company_name))
         `).order('booking_date', { ascending: false }),
         supabase.from('passengers').select('*', { count: 'exact' }),
-        supabase.from('users').select('*, company:flight_companies(company_name)').eq('role', 'airline_admin'),
+        supabase.from('users').select('*, company:flight_companies(company_name)').eq('role', 'flight_company'),
     ])
 
     const allUsersList = allUsersResponse.data || []
