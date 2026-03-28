@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import GlobalBlurredBackground from "@/components/global-blurred-background";
 import { AivaChatbot } from "@/components/aiva-chatbot";
+import { inject } from "@vercel/analytics"; // ADD THIS
 
 export const metadata: Metadata = {
   title: "Aerovault",
@@ -13,6 +14,9 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+
+  inject(); // ADD THIS
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body
