@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { redirect } from "next/navigation"
 import { createClient } from "@/utils/supabase/server"
 import Navbar from "@/components/navbar"
 import { Button } from "@/components/ui/button"
@@ -12,20 +13,34 @@ export default async function AirlineDashboard() {
     const { data: { user } } = await supabase.auth.getUser()
 
     if (!user) {
-        return <div>Please log in</div>
+        redirect('/login')
     }
 
-    // 1. Fetch user's profile to get their airline_id (company ID)
+    // Hard role guard — second layer after middleware
+    // Also fetch company_id in the same query
     const { data: profile } = await supabase
         .from('users')
-        .select('airline_id')
+        .select('role')
         .eq('id', user.id)
         .single()
 
+    if (profile?.role !== 'flight_company') {
+        if (profile?.role === 'admin') redirect('/admin/dashboard')
+        else redirect('/user')
+    }
+
+    // Fetch this airline's company record
+    const { data: companyRecord } = await supabase
+        .from('flight_companies')
+        .select('id, company_name')
+        .eq('user_id', user.id)
+        .single()
+
+    // Fetch flights belonging to this company
     const { data } = await supabase
         .from('flights')
         .select('*')
-        .eq('airline_id', profile?.airline_id || '00000000-0000-0000-0000-000000000000')
+        .eq('company_id', companyRecord?.id || '00000000-0000-0000-0000-000000000000')
         .order('created_at', { ascending: false })
 
     const flights = data || []
@@ -35,7 +50,12 @@ export default async function AirlineDashboard() {
             <Navbar />
             <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8 pt-24">
                 <div className="flex justify-between items-center px-4 mb-6">
-                    <h1 className="text-3xl font-bold text-gray-900">Airline Dashboard</h1>
+                    <div>
+                        <h1 className="text-3xl font-bold text-gray-900">Airline Dashboard</h1>
+                        {companyRecord?.company_name && (
+                            <p className="text-gray-500 text-sm mt-1">{companyRecord.company_name}</p>
+                        )}
+                    </div>
                     <Link href="/airline/flights/new">
                         <Button className="bg-blue-600 hover:bg-blue-700">
                             <Plus className="mr-2 h-4 w-4" /> Add New Flight
@@ -46,7 +66,7 @@ export default async function AirlineDashboard() {
                 <div className="px-4 grid grid-cols-1 gap-6">
                     <Card>
                         <CardHeader>
-                            <CardTitle>Manage Flights</CardTitle>
+                            <CardTitle>Manage Flights ({flights.length})</CardTitle>
                         </CardHeader>
                         <CardContent>
                             {flights.length === 0 ? (
@@ -75,7 +95,7 @@ export default async function AirlineDashboard() {
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                                         {new Date(flight.departure_time).toLocaleString()}
                                                     </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${flight.price}</td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">₹{flight.price}</td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{flight.available_seats}/{flight.total_seats}</td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                                                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${flight.status === 'scheduled' ? 'bg-green-100 text-green-800' :

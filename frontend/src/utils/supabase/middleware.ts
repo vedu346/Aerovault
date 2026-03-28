@@ -8,6 +8,20 @@ type CookieToSet = {
     options?: Parameters<NextResponse['cookies']['set']>[2]
 }
 
+// Map DB role enum values to dashboard routes
+const ROLE_DASHBOARDS: Record<string, string> = {
+    admin: '/admin/dashboard',
+    flight_company: '/airline/dashboard',
+    customer: '/user',
+}
+
+// Which route prefixes each role is allowed to access
+const ROLE_ALLOWED_PREFIX: Record<string, string[]> = {
+    admin: ['/admin'],
+    flight_company: ['/airline'],
+    customer: ['/user'],
+}
+
 export async function updateSession(request: NextRequest) {
     let supabaseResponse = NextResponse.next({
         request,
@@ -45,33 +59,46 @@ export async function updateSession(request: NextRequest) {
         data: { user },
     } = await supabase.auth.getUser()
 
-    if (user) {
-        const { data: profile } = await supabase
-            .from('users')
-            .select('role')
-            .eq('id', user.id)
-            .single()
+    const pathname = request.nextUrl.pathname
 
-        const role = profile?.role || 'user'
-        const pathname = request.nextUrl.pathname
+    const isProtectedRoute =
+        pathname.startsWith('/admin') ||
+        pathname.startsWith('/airline') ||
+        pathname.startsWith('/user')
 
-        if (pathname.startsWith('/admin') && role !== 'admin') {
-            return NextResponse.redirect(new URL('/', request.url))
-        }
-        if (pathname.startsWith('/airline') && role !== 'airline_admin') {
-            return NextResponse.redirect(new URL('/', request.url))
-        }
-        if (pathname.startsWith('/user') && role !== 'user') {
-            return NextResponse.redirect(new URL('/', request.url))
-        }
-    } else {
-        const pathname = request.nextUrl.pathname
-        if (
-            pathname.startsWith('/admin') ||
-            pathname.startsWith('/airline') ||
-            pathname.startsWith('/user')
-        ) {
+    if (!user) {
+        // Unauthenticated user hits a protected route → redirect to login
+        if (isProtectedRoute) {
             return NextResponse.redirect(new URL('/login', request.url))
+        }
+        return supabaseResponse
+    }
+
+    // User is authenticated — fetch real role from DB
+    const { data: profile } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+
+    const role = profile?.role as string | undefined
+
+    if (!role) {
+        // Profile not found — sign them out and redirect
+        if (isProtectedRoute) {
+            return NextResponse.redirect(new URL('/login', request.url))
+        }
+        return supabaseResponse
+    }
+
+    if (isProtectedRoute) {
+        const allowed = ROLE_ALLOWED_PREFIX[role] || []
+        const hasAccess = allowed.some((prefix) => pathname.startsWith(prefix))
+
+        if (!hasAccess) {
+            // Redirect to their correct dashboard instead of home page
+            const correctDashboard = ROLE_DASHBOARDS[role] || '/'
+            return NextResponse.redirect(new URL(correctDashboard, request.url))
         }
     }
 

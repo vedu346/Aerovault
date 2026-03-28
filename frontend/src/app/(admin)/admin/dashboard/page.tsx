@@ -23,6 +23,19 @@ export default async function AdminDashboard() {
         redirect('/login')
     }
 
+    // Hard role guard — second layer after middleware
+    const { data: profile } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+
+    if (profile?.role !== 'admin') {
+        // Redirect to their actual dashboard
+        if (profile?.role === 'flight_company') redirect('/airline/dashboard')
+        else redirect('/user')
+    }
+
     // Fetch all data in parallel
     const [
         allUsersResponse,
