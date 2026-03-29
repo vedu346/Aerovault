@@ -1673,6 +1673,8 @@ async function buildReply(
 }
 
 export async function POST(req: NextRequest) {
+  let fallbackLanguage: Language = "en";
+
   try {
     const body = await req.json();
     const messages = Array.isArray(body?.messages) ? (body.messages as ChatMessage[]) : [];
@@ -1687,6 +1689,7 @@ export async function POST(req: NextRequest) {
     }
 
     const language = detectPreferredLanguage(messages);
+    fallbackLanguage = language;
 
     const supabase = await createClient();
     const [userContext, flights] = await Promise.all([
@@ -1726,6 +1729,34 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     console.error("AIVA route error:", error);
-    return NextResponse.json({ error: "Failed to process chat request." }, { status: 500 });
+    const now = getNowContext();
+    const rawError = error instanceof Error ? error.message : "Unknown error";
+
+    return NextResponse.json(
+      {
+        reply: pick(
+          fallbackLanguage,
+          `I hit a temporary backend issue, but I’m still here to help.
+**Today:** ${now.date}
+**Current time (${now.timezone}):** ${now.time}
+Please retry once. If this repeats, check required server env vars and chat API logs.`,
+          `मुझे backend में अस्थायी समस्या मिली, लेकिन मैं मदद के लिए उपलब्ध हूं।
+**आज:** ${now.date}
+**अभी का समय (${now.timezone}):** ${now.time}
+कृपया एक बार फिर प्रयास करें। अगर समस्या जारी रहे तो server env vars और chat API logs जांचें।`
+        ),
+        meta: {
+          usedModel: false,
+          timezone: APP_TIMEZONE,
+          language: fallbackLanguage,
+          bookingCreated: false,
+          buildCommit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || "local",
+          error: true,
+          errorMessage:
+            process.env.NODE_ENV !== "production" ? rawError.slice(0, 180) : "internal_error",
+        },
+      },
+      { status: 200 }
+    );
   }
 }
