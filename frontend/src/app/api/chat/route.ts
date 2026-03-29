@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
+import { generateInvoiceNumber, generateTicketId } from "@/utils/generate-ids";
 
 type ChatMessage = {
   sender: "user" | "bot" | "aiva";
@@ -24,6 +25,16 @@ type CachedResponse = {
   expiresAt: number;
 };
 
+type Language = "en" | "hi";
+
+type ReplyResult = {
+  reply: string;
+  usedModel: boolean;
+  matchedKnowledge: KnowledgeItem[];
+  language: Language;
+  bookingCreated: boolean;
+};
+
 const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 const APP_TIMEZONE = process.env.APP_TIMEZONE ?? "Asia/Kolkata";
 const MAX_HISTORY_MESSAGES = 8;
@@ -45,16 +56,20 @@ const globalForCache = globalThis as typeof globalThis & {
 const responseCache = globalForCache.__aivaResponseCache ?? new Map<string, CachedResponse>();
 globalForCache.__aivaResponseCache = responseCache;
 
+function pick(lang: Language, english: string, hindi: string) {
+  return lang === "hi" ? hindi : english;
+}
+
 function getNowContext() {
   const now = new Date();
 
   return {
     iso: now.toISOString(),
-    date: new Intl.DateTimeFormat("en-US", {
+    date: new Intl.DateTimeFormat("en-IN", {
       timeZone: APP_TIMEZONE,
       dateStyle: "full",
     }).format(now),
-    time: new Intl.DateTimeFormat("en-US", {
+    time: new Intl.DateTimeFormat("en-IN", {
       timeZone: APP_TIMEZONE,
       timeStyle: "medium",
     }).format(now),
@@ -68,11 +83,36 @@ function formatDateTime(value?: string | null) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "N/A";
 
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat("en-IN", {
     timeZone: APP_TIMEZONE,
     dateStyle: "medium",
     timeStyle: "short",
   }).format(parsed);
+}
+
+function isHindiText(text: string) {
+  return /[\u0900-\u097F]/.test(text);
+}
+
+function detectPreferredLanguage(messages: ChatMessage[]) {
+  const userMessages = [...messages]
+    .reverse()
+    .filter((message) => message.sender === "user" && message.text?.trim());
+
+  for (const message of userMessages) {
+    const text = message.text.toLowerCase();
+    if (text.includes("english") || text.includes("अंग्रेजी") || text.includes("अंग्रेज़ी")) {
+      return "en" as const;
+    }
+    if (text.includes("hindi") || text.includes("हिंदी") || text.includes("हिन्दी")) {
+      return "hi" as const;
+    }
+    if (isHindiText(message.text)) {
+      return "hi" as const;
+    }
+  }
+
+  return "en" as const;
 }
 
 function normalizeMessages(messages: ChatMessage[]) {
@@ -85,16 +125,213 @@ function normalizeMessages(messages: ChatMessage[]) {
     }));
 }
 
+function normalizeDigits(text: string) {
+  const hindiDigits = "०१२३४५६७८९";
+  return text.replace(/[०-९]/g, (digit) => String(hindiDigits.indexOf(digit)));
+}
+
+function includesAny(text: string, tokens: string[]) {
+  return tokens.some((token) => text.includes(token));
+}
+
 function extractSearchTerms(message: string) {
   return Array.from(
     new Set(
       message
         .toLowerCase()
-        .split(/[^a-z0-9]+/)
+        .split(/[^a-z0-9\u0900-\u097F]+/)
         .map((term) => term.trim())
         .filter((term) => term.length >= 3)
     )
   ).slice(0, 6);
+}
+
+function detectIntent(message: string) {
+  const text = normalizeDigits(message.toLowerCase());
+
+  const asksTimeOrDate = includesAny(text, [
+    "time",
+    "date",
+    "today",
+    "right now",
+    "current time",
+    "current date",
+    "what day",
+    "समय",
+    "टाइम",
+    "तारीख",
+    "आज",
+    "दिन",
+  ]);
+
+  const asksBookings = includesAny(text, [
+    "my booking",
+    "my bookings",
+    "my ticket",
+    "my tickets",
+    "booked",
+    "reservation",
+    "मेरी बुकिंग",
+    "मेरे टिकट",
+    "मेरा टिकट",
+    "आरक्षण",
+  ]);
+
+  const asksProfile = includesAny(text, [
+    "my profile",
+    "my account",
+    "who am i",
+    "my role",
+    "my email",
+    "मेरा प्रोफाइल",
+    "मेरी प्रोफाइल",
+    "मेरा अकाउंट",
+    "मेरा रोल",
+    "मेरा ईमेल",
+  ]);
+
+  const asksFlightStatus = includesAny(text, [
+    "flight status",
+    "status of",
+    "is flight",
+    "delayed",
+    "cancelled",
+    "canceled",
+    "फ्लाइट स्टेटस",
+    "स्थिति",
+    "देरी",
+    "रद्द",
+    "कैंसल",
+  ]);
+
+  const asksFlights = includesAny(text, [
+    "flight",
+    "flights",
+    "search",
+    "available",
+    "from ",
+    " to ",
+    "cheapest",
+    "उड़ान",
+    "फ्लाइट",
+    "उपलब्ध",
+    "सस्ती",
+    "से ",
+    " तक",
+  ]);
+
+  const asksBookAction = includesAny(text, [
+    "book",
+    "reserve",
+    "booking",
+    "बुक",
+    "टिकट बुक",
+    "बुकिंग",
+    "आरक्षित",
+    "बुक कर",
+    "बुक करो",
+  ]);
+
+  const greetingOnly = /^(hi|hello|hey|yo|hola|नमस्ते|नमस्कार|हेलो)\b/.test(text.trim());
+
+  return {
+    asksTimeOrDate,
+    asksBookings,
+    asksProfile,
+    asksFlightStatus,
+    asksFlights,
+    asksBookAction,
+    greetingOnly,
+  };
+}
+
+function extractFlightNumber(text: string) {
+  const match = normalizeDigits(text.toUpperCase()).match(/\b[A-Z]{1,3}\d{1,4}\b/);
+  return match?.[0] ?? null;
+}
+
+function extractPassengerCount(text: string) {
+  const normalized = normalizeDigits(text.toLowerCase());
+  const explicit = normalized.match(
+    /(\d+)\s*(passenger|passengers|ticket|tickets|seat|seats|यात्री|टिकट|सीट)/i
+  );
+
+  if (explicit) {
+    const value = Number.parseInt(explicit[1], 10);
+    if (!Number.isNaN(value)) {
+      return Math.min(Math.max(value, 1), 9);
+    }
+  }
+
+  const generic = normalized.match(/\b(\d+)\b/);
+  if (generic) {
+    const value = Number.parseInt(generic[1], 10);
+    if (!Number.isNaN(value)) {
+      return Math.min(Math.max(value, 1), 9);
+    }
+  }
+
+  return 1;
+}
+
+function extractRoute(text: string) {
+  const fromTo = text.match(/\bfrom\s+([a-z\s]+?)\s+to\s+([a-z\s]+)\b/i);
+  if (fromTo) {
+    return {
+      source: fromTo[1].trim(),
+      destination: fromTo[2].trim(),
+    };
+  }
+
+  const hindiRoute = text.match(/([\u0900-\u097Fa-z\s]+?)\s+से\s+([\u0900-\u097Fa-z\s]+?)\s+तक/i);
+  if (hindiRoute) {
+    return {
+      source: hindiRoute[1].trim(),
+      destination: hindiRoute[2].trim(),
+    };
+  }
+
+  const generic = text.match(/\b([a-z\s]{3,})\s+to\s+([a-z\s]{3,})\b/i);
+  if (generic) {
+    return {
+      source: generic[1].trim(),
+      destination: generic[2].trim(),
+    };
+  }
+
+  return null;
+}
+
+function normalizeLocation(value: string | undefined | null) {
+  return (value ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function filterFlightsByRoute(flights: any[], route: { source: string; destination: string } | null) {
+  if (!route) return flights;
+
+  const source = normalizeLocation(route.source);
+  const destination = normalizeLocation(route.destination);
+
+  return flights.filter((flight) => {
+    const flightSource = normalizeLocation(flight.source);
+    const flightDestination = normalizeLocation(flight.destination);
+
+    return flightSource.includes(source) && flightDestination.includes(destination);
+  });
+}
+
+function buildFlightLine(flight: any) {
+  const companyName = flight?.company?.company_name || flight?.airline_name || "Airline";
+  const seats =
+    typeof flight?.available_seats === "number" && typeof flight?.total_seats === "number"
+      ? ` | Seats ${flight.available_seats}/${flight.total_seats}`
+      : "";
+
+  return `${flight.flight_number || "N/A"} | ${flight.source || "N/A"} → ${
+    flight.destination || "N/A"
+  } | ${formatDateTime(flight.departure_time)} | ₹${flight.price ?? "N/A"} | ${
+    flight.status || "unknown"
+  } | ${companyName}${seats}`;
 }
 
 async function findRelevantKnowledge(
@@ -153,6 +390,7 @@ async function loadCurrentUserContext(
         ticket_id,
         invoice_number,
         flights (
+          id,
           flight_number,
           source,
           destination,
@@ -203,181 +441,110 @@ async function loadFlightsContext(supabase: Awaited<ReturnType<typeof createClie
   return (data ?? []) as any[];
 }
 
-function includesAny(text: string, tokens: string[]) {
-  return tokens.some((token) => text.includes(token));
-}
-
-function detectIntent(message: string) {
-  const text = message.toLowerCase();
-  const asksTimeOrDate = includesAny(text, [
-    "time",
-    "date",
-    "today",
-    "right now",
-    "current time",
-    "current date",
-    "what day",
-  ]);
-  const asksBookings = includesAny(text, [
-    "my booking",
-    "my bookings",
-    "my ticket",
-    "my tickets",
-    "booked",
-    "reservation",
-  ]);
-  const asksProfile = includesAny(text, [
-    "my profile",
-    "my account",
-    "who am i",
-    "my role",
-    "my email",
-  ]);
-  const asksFlightStatus = includesAny(text, ["flight status", "status of", "is flight", "delayed", "cancelled", "canceled"]);
-  const asksFlights = includesAny(text, [
-    "flight",
-    "flights",
-    "search",
-    "available",
-    "from ",
-    " to ",
-    "cheapest",
-    "book",
-  ]);
-  const greetingOnly = /^(hi|hello|hey|yo|hola)\b/.test(text.trim());
-
-  return {
-    asksTimeOrDate,
-    asksBookings,
-    asksProfile,
-    asksFlightStatus,
-    asksFlights,
-    greetingOnly,
-  };
-}
-
-function extractFlightNumber(text: string) {
-  const match = text.toUpperCase().match(/\b[A-Z]{1,3}\d{1,4}\b/);
-  return match?.[0] ?? null;
-}
-
-function extractRoute(text: string) {
-  const fromTo = text.match(/\bfrom\s+([a-z\s]+?)\s+to\s+([a-z\s]+)\b/i);
-  if (fromTo) {
-    return {
-      source: fromTo[1].trim(),
-      destination: fromTo[2].trim(),
-    };
-  }
-
-  const generic = text.match(/\b([a-z\s]{3,})\s+to\s+([a-z\s]{3,})\b/i);
-  if (generic) {
-    return {
-      source: generic[1].trim(),
-      destination: generic[2].trim(),
-    };
-  }
-
-  return null;
-}
-
-function normalizeLocation(value: string | undefined | null) {
-  return (value ?? "").toLowerCase().replace(/\s+/g, " ").trim();
-}
-
-function filterFlightsByRoute(flights: any[], route: { source: string; destination: string } | null) {
-  if (!route) return flights;
-
-  const source = normalizeLocation(route.source);
-  const destination = normalizeLocation(route.destination);
-
-  return flights.filter((flight) => {
-    const flightSource = normalizeLocation(flight.source);
-    const flightDestination = normalizeLocation(flight.destination);
-
-    return flightSource.includes(source) && flightDestination.includes(destination);
-  });
-}
-
-function buildFlightLine(flight: any) {
-  const companyName =
-    flight?.company?.company_name || flight?.airline_name || "Airline";
-  const seats =
-    typeof flight?.available_seats === "number" && typeof flight?.total_seats === "number"
-      ? ` | Seats ${flight.available_seats}/${flight.total_seats}`
-      : "";
-
-  return `${flight.flight_number || "N/A"} | ${flight.source || "N/A"} → ${flight.destination || "N/A"} | ${formatDateTime(
-    flight.departure_time
-  )} | ₹${flight.price ?? "N/A"} | ${flight.status || "unknown"} | ${companyName}${seats}`;
-}
-
-function buildBookingsReply(userContext: CurrentUserContext) {
+function buildBookingsReply(userContext: CurrentUserContext, lang: Language) {
   if (!userContext.authUser) {
-    return "You are not logged in right now, so I cannot read your bookings. Please sign in and ask again.";
+    return pick(
+      lang,
+      "You are not logged in right now, so I cannot read your bookings. Please sign in and ask again.",
+      "आप अभी लॉग इन नहीं हैं, इसलिए मैं आपकी बुकिंग नहीं पढ़ सकता। कृपया लॉग इन करके फिर पूछें।"
+    );
   }
 
   if (!userContext.bookings.length) {
-    return "I checked your account and you currently have no bookings.";
+    return pick(
+      lang,
+      "I checked your account and you currently have no bookings.",
+      "मैंने आपका अकाउंट देखा और अभी कोई बुकिंग नहीं मिली।"
+    );
   }
 
   const lines = userContext.bookings.slice(0, 5).map((booking: any, index) => {
     const flight = booking?.flights || {};
-    return `${index + 1}. ${flight.flight_number || "N/A"} (${flight.source || "N/A"} → ${flight.destination || "N/A"}) | ${booking.status || "unknown"} | Depart ${formatDateTime(
+    return `${index + 1}. ${flight.flight_number || "N/A"} (${flight.source || "N/A"} → ${
+      flight.destination || "N/A"
+    }) | ${booking.status || "unknown"} | ${pick(lang, "Depart", "प्रस्थान")} ${formatDateTime(
       flight.departure_time
-    )} | ₹${booking.total_price ?? "N/A"} | Ticket ${booking.ticket_id || "N/A"}`;
+    )} | ₹${booking.total_price ?? "N/A"} | ${pick(lang, "Ticket", "टिकट")} ${
+      booking.ticket_id || "N/A"
+    }`;
   });
 
-  return `Here are your latest bookings:\n${lines.join("\n")}`;
+  return `${pick(lang, "Here are your latest bookings:", "आपकी हाल की बुकिंग्स:")}\n${lines.join("\n")}`;
 }
 
-function buildProfileReply(userContext: CurrentUserContext) {
+function buildProfileReply(userContext: CurrentUserContext, lang: Language) {
   if (!userContext.authUser) {
-    return "You are not logged in right now, so I cannot load profile details.";
+    return pick(
+      lang,
+      "You are not logged in right now, so I cannot load profile details.",
+      "आप अभी लॉग इन नहीं हैं, इसलिए मैं प्रोफाइल विवरण नहीं ला सकता।"
+    );
   }
 
   const metadata = userContext.authUser.user_metadata || {};
-  const fullName = userContext.profile?.full_name || metadata.full_name || "Not set";
+  const fullName = userContext.profile?.full_name || metadata.full_name || pick(lang, "Not set", "सेट नहीं");
   const role = userContext.profile?.role || "unknown";
-  const email = userContext.authUser.email || "Not available";
+  const email = userContext.authUser.email || pick(lang, "Not available", "उपलब्ध नहीं");
   const joined = formatDateTime(userContext.authUser.created_at || null);
 
-  return `I can see this profile data:\n- Name: ${fullName}\n- Email: ${email}\n- Role: ${role}\n- Account created: ${joined}`;
+  return pick(
+    lang,
+    `I can see this profile data:\n- Name: ${fullName}\n- Email: ${email}\n- Role: ${role}\n- Account created: ${joined}`,
+    `मुझे यह प्रोफाइल जानकारी दिख रही है:\n- नाम: ${fullName}\n- ईमेल: ${email}\n- रोल: ${role}\n- अकाउंट बनाया गया: ${joined}`
+  );
 }
 
-function buildTimeReply() {
+function buildTimeReply(lang: Language) {
   const now = getNowContext();
-  return `Current date/time (${now.timezone}): ${now.date}, ${now.time}.`;
+  return pick(
+    lang,
+    `Current date/time (${now.timezone}): ${now.date}, ${now.time}.`,
+    `अभी की तारीख/समय (${now.timezone}): ${now.date}, ${now.time}।`
+  );
 }
 
-function buildFlightsReply(message: string, flights: any[]) {
+function buildFlightsReply(message: string, flights: any[], lang: Language) {
   if (!flights.length) {
-    return "I currently have no flight records available.";
+    return pick(
+      lang,
+      "I currently have no flight records available.",
+      "मेरे पास अभी कोई फ्लाइट रिकॉर्ड उपलब्ध नहीं है।"
+    );
   }
 
-  const text = message.toLowerCase();
+  const text = normalizeDigits(message.toLowerCase());
   const route = extractRoute(text);
   let filtered = filterFlightsByRoute(flights, route);
 
   if (!filtered.length && route) {
-    return `I could not find flights for "${route.source} to ${route.destination}" right now. Try nearby city names or ask for all upcoming flights.`;
+    return pick(
+      lang,
+      `I could not find flights for "${route.source} to ${route.destination}" right now. Try nearby city names or ask for all upcoming flights.`,
+      `"${route.source} से ${route.destination}" के लिए अभी कोई फ्लाइट नहीं मिली। पास के शहर के नाम से कोशिश करें या सभी upcoming flights पूछें।`
+    );
   }
 
-  if (includesAny(text, ["cheapest", "lowest price", "lowest fare", "cheap"])) {
-    filtered = [...filtered].sort((a, b) => (a.price ?? Number.MAX_SAFE_INTEGER) - (b.price ?? Number.MAX_SAFE_INTEGER));
+  if (includesAny(text, ["cheapest", "lowest price", "lowest fare", "cheap", "सस्ती", "सबसे सस्ती"])) {
+    filtered = [...filtered].sort(
+      (a, b) => (a.price ?? Number.MAX_SAFE_INTEGER) - (b.price ?? Number.MAX_SAFE_INTEGER)
+    );
   }
 
   const selected = filtered.slice(0, 6);
   const lines = selected.map((flight, index) => `${index + 1}. ${buildFlightLine(flight)}`);
 
   const prefix = route
-    ? `Found ${filtered.length} matching flight(s) for ${route.source} → ${route.destination}.`
-    : `Here are ${selected.length} upcoming flight option(s).`;
+    ? pick(
+        lang,
+        `Found ${filtered.length} matching flight(s) for ${route.source} → ${route.destination}.`,
+        `${route.source} → ${route.destination} के लिए ${filtered.length} matching flight मिलीं।`
+      )
+    : pick(lang, `Here are ${selected.length} upcoming flight option(s).`, `यह ${selected.length} upcoming flight options हैं।`);
 
   return `${prefix}\n${lines.join("\n")}`;
 }
 
-function buildFlightStatusReply(message: string, flights: any[]) {
+function buildFlightStatusReply(message: string, flights: any[], lang: Language) {
   const flightNumber = extractFlightNumber(message);
   if (!flightNumber) {
     return null;
@@ -388,12 +555,24 @@ function buildFlightStatusReply(message: string, flights: any[]) {
   );
 
   if (!flight) {
-    return `I could not find flight ${flightNumber} in current records.`;
+    return pick(
+      lang,
+      `I could not find flight ${flightNumber} in current records.`,
+      `मुझे अभी के रिकॉर्ड में फ्लाइट ${flightNumber} नहीं मिली।`
+    );
   }
 
-  return `Status for ${flightNumber}: ${flight.status || "unknown"}.\nRoute: ${flight.source} → ${flight.destination}\nDeparture: ${formatDateTime(
-    flight.departure_time
-  )}\nArrival: ${formatDateTime(flight.arrival_time)}`;
+  return pick(
+    lang,
+    `Status for ${flightNumber}: ${flight.status || "unknown"}.\nRoute: ${flight.source} → ${
+      flight.destination
+    }\nDeparture: ${formatDateTime(flight.departure_time)}\nArrival: ${formatDateTime(
+      flight.arrival_time
+    )}`,
+    `${flightNumber} की स्थिति: ${flight.status || "unknown"}\nरूट: ${flight.source} → ${
+      flight.destination
+    }\nप्रस्थान: ${formatDateTime(flight.departure_time)}\nआगमन: ${formatDateTime(flight.arrival_time)}`
+  );
 }
 
 function buildCompactUserContext(userContext: CurrentUserContext) {
@@ -456,11 +635,16 @@ async function callOpenAI(
   messages: ChatMessage[],
   knowledgeItems: KnowledgeItem[],
   userContext: CurrentUserContext,
-  flights: any[]
+  flights: any[],
+  language: Language
 ) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    return "I can still help with live flights, your bookings, and profile details. For open-ended questions, AI text generation is currently unavailable.";
+    return pick(
+      language,
+      "I can still help with live flights, your bookings, and profile details. For open-ended questions, AI text generation is currently unavailable.",
+      "मैं live flights, आपकी bookings और profile details में मदद कर सकता हूं। Open-ended सवालों के लिए AI text generation अभी उपलब्ध नहीं है।"
+    );
   }
 
   const nowContext = getNowContext();
@@ -468,11 +652,16 @@ async function callOpenAI(
   const userContextSummary = buildCompactUserContext(userContext);
   const bookingsSummary = buildCompactBookingsContext(userContext.bookings);
   const flightsSummary = buildCompactFlightsContext(flights);
+  const languageDirective =
+    language === "hi"
+      ? "Always respond in Hindi (Devanagari script), unless user explicitly asks for English."
+      : "Respond in English unless user asks for Hindi.";
 
   const completionMessages = [
     {
       role: "system",
       content: `${SYSTEM_PROMPT}
+${languageDirective}
 
 Current date/time:
 - Date: ${nowContext.date}
@@ -518,13 +707,211 @@ ${knowledgeContext}`,
 
   return (
     payload?.choices?.[0]?.message?.content?.trim() ||
-    "I can help with that. Could you share a bit more detail?"
+    pick(
+      language,
+      "I can help with that. Could you share a bit more detail?",
+      "मैं मदद कर सकता हूं। कृपया थोड़ा और विवरण साझा करें।"
+    )
   );
 }
 
-function buildGreetingReply() {
+function splitName(fullName: string) {
+  const cleaned = fullName.trim().replace(/\s+/g, " ");
+  if (!cleaned) {
+    return {
+      firstName: "Passenger",
+      lastName: "User",
+    };
+  }
+
+  const parts = cleaned.split(" ");
+  if (parts.length === 1) {
+    return {
+      firstName: parts[0],
+      lastName: "User",
+    };
+  }
+
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(" "),
+  };
+}
+
+async function tryCreateBookingFromMessage(
+  message: string,
+  lang: Language,
+  userContext: CurrentUserContext,
+  flights: any[],
+  supabase: Awaited<ReturnType<typeof createClient>>
+) {
+  const flightNumber = extractFlightNumber(message);
+  if (!flightNumber) {
+    return {
+      handled: true,
+      bookingCreated: false,
+      reply: pick(
+        lang,
+        "To book from chat, share a flight number and passenger count. Example: `Book AI203 for 2 passengers`.",
+        "चैट से बुक करने के लिए flight number और passengers बताएं। उदाहरण: `AI203 2 यात्री बुक करो`।"
+      ),
+    };
+  }
+
+  if (!userContext.authUser) {
+    return {
+      handled: true,
+      bookingCreated: false,
+      reply: pick(
+        lang,
+        "Please log in first to book tickets from chat.",
+        "चैट से टिकट बुक करने के लिए पहले लॉग इन करें।"
+      ),
+    };
+  }
+
+  let flight =
+    flights.find((item) => String(item?.flight_number || "").toUpperCase() === flightNumber) || null;
+
+  if (!flight) {
+    const lookup = await supabase
+      .from("flights")
+      .select("*, company:flight_companies(company_name)")
+      .eq("flight_number", flightNumber)
+      .single();
+
+    if (lookup.error || !lookup.data) {
+      return {
+        handled: true,
+        bookingCreated: false,
+        reply: pick(
+          lang,
+          `I could not find flight ${flightNumber}. Please verify the flight number.`,
+          `मुझे फ्लाइट ${flightNumber} नहीं मिली। कृपया flight number जांचें।`
+        ),
+      };
+    }
+
+    flight = lookup.data;
+  }
+
+  const passengerCount = extractPassengerCount(message);
+
+  if (flight.status && String(flight.status).toLowerCase() !== "scheduled") {
+    return {
+      handled: true,
+      bookingCreated: false,
+      reply: pick(
+        lang,
+        `Flight ${flightNumber} is currently ${flight.status}. Booking is allowed only for scheduled flights.`,
+        `फ्लाइट ${flightNumber} की स्थिति अभी ${flight.status} है। बुकिंग केवल scheduled flights के लिए है।`
+      ),
+    };
+  }
+
+  if (
+    typeof flight.available_seats === "number" &&
+    flight.available_seats > 0 &&
+    passengerCount > flight.available_seats
+  ) {
+    return {
+      handled: true,
+      bookingCreated: false,
+      reply: pick(
+        lang,
+        `Only ${flight.available_seats} seats are available on ${flightNumber}, but you asked for ${passengerCount}.`,
+        `${flightNumber} में केवल ${flight.available_seats} सीट उपलब्ध हैं, जबकि आपने ${passengerCount} मांगी हैं।`
+      ),
+    };
+  }
+
+  const totalPrice = (Number(flight.price) || 0) * passengerCount;
+  const ticketId = generateTicketId();
+  const invoiceNumber = generateInvoiceNumber();
+
+  const bookingInsert = await supabase
+    .from("bookings")
+    .insert({
+      user_id: userContext.authUser.id,
+      flight_id: flight.id,
+      status: "confirmed",
+      meal_selected: false,
+      seats: passengerCount,
+      total_price: totalPrice,
+      ticket_id: ticketId,
+      invoice_number: invoiceNumber,
+    })
+    .select("id, ticket_id, invoice_number, total_price")
+    .single();
+
+  if (bookingInsert.error || !bookingInsert.data) {
+    console.error("Chat booking insert failed:", bookingInsert.error);
+    return {
+      handled: true,
+      bookingCreated: false,
+      reply: pick(
+        lang,
+        "I could not complete booking right now. Please try again in a moment.",
+        "मैं अभी बुकिंग पूरी नहीं कर पाया। कृपया थोड़ी देर बाद फिर प्रयास करें।"
+      ),
+    };
+  }
+
+  const metadata = userContext.authUser.user_metadata || {};
+  const profileName =
+    userContext.profile?.full_name ||
+    metadata.full_name ||
+    String(userContext.authUser.email || "").split("@")[0] ||
+    "Passenger";
+  const { firstName, lastName } = splitName(profileName);
+  const email = userContext.authUser.email ?? null;
+  const phone = userContext.profile?.phone ?? null;
+
+  const passengerRows = Array.from({ length: passengerCount }).map((_, index) => ({
+    booking_id: bookingInsert.data.id,
+    first_name: index === 0 ? firstName : `${firstName}-${index + 1}`,
+    last_name: lastName,
+    age: 30,
+    gender: "other",
+    email,
+    phone,
+  }));
+
+  const passengerInsert = await supabase.from("passengers").insert(passengerRows);
+  if (passengerInsert.error) {
+    console.error("Chat booking passenger insert failed:", passengerInsert.error);
+  }
+
+  const companyName = flight?.company?.company_name || "Airline";
+
+  return {
+    handled: true,
+    bookingCreated: true,
+    reply: pick(
+      lang,
+      `Done. I booked ${passengerCount} ticket(s) on ${flightNumber} (${flight.source} → ${flight.destination}, ${companyName}).
+Ticket ID: ${bookingInsert.data.ticket_id}
+Invoice: ${bookingInsert.data.invoice_number}
+Total: ₹${bookingInsert.data.total_price}
+You can view it in My Tickets.`,
+      `बुकिंग हो गई। मैंने ${flightNumber} (${flight.source} → ${flight.destination}, ${companyName}) पर ${passengerCount} टिकट बुक किए।
+टिकट आईडी: ${bookingInsert.data.ticket_id}
+इनवॉइस: ${bookingInsert.data.invoice_number}
+कुल राशि: ₹${bookingInsert.data.total_price}
+आप इसे My Tickets में देख सकते हैं।`
+    ),
+  };
+}
+
+function buildGreetingReply(lang: Language) {
   const now = getNowContext();
-  return `Hi, I’m AIVA. I can check live flights, your logged-in account data, and your bookings.\nCurrent ${now.timezone} time: ${now.time}.`;
+  return pick(
+    lang,
+    `Hi, I’m AIVA. I can check live flights, your logged-in account data, and your bookings.
+Current ${now.timezone} time: ${now.time}.`,
+    `नमस्ते, मैं AIVA हूं। मैं live flights, आपके account data और bookings में मदद कर सकती हूं।
+अभी ${now.timezone} समय: ${now.time}।`
+  );
 }
 
 async function buildReply(
@@ -532,74 +919,110 @@ async function buildReply(
   messages: ChatMessage[],
   supabase: Awaited<ReturnType<typeof createClient>>,
   userContext: CurrentUserContext,
-  flights: any[]
-) {
+  flights: any[],
+  language: Language
+): Promise<ReplyResult> {
   const intent = detectIntent(message);
 
   if (intent.greetingOnly) {
     return {
-      reply: buildGreetingReply(),
+      reply: buildGreetingReply(language),
       usedModel: false,
-      matchedKnowledge: [] as KnowledgeItem[],
+      matchedKnowledge: [],
+      language,
+      bookingCreated: false,
     };
+  }
+
+  if (intent.asksBookAction) {
+    const bookingResult = await tryCreateBookingFromMessage(
+      message,
+      language,
+      userContext,
+      flights,
+      supabase
+    );
+    if (bookingResult.handled) {
+      return {
+        reply: bookingResult.reply,
+        usedModel: false,
+        matchedKnowledge: [],
+        language,
+        bookingCreated: bookingResult.bookingCreated,
+      };
+    }
   }
 
   if (intent.asksTimeOrDate) {
     return {
-      reply: buildTimeReply(),
+      reply: buildTimeReply(language),
       usedModel: false,
-      matchedKnowledge: [] as KnowledgeItem[],
+      matchedKnowledge: [],
+      language,
+      bookingCreated: false,
     };
   }
 
   if (intent.asksProfile) {
     return {
-      reply: buildProfileReply(userContext),
+      reply: buildProfileReply(userContext, language),
       usedModel: false,
-      matchedKnowledge: [] as KnowledgeItem[],
+      matchedKnowledge: [],
+      language,
+      bookingCreated: false,
     };
   }
 
   if (intent.asksBookings) {
     return {
-      reply: buildBookingsReply(userContext),
+      reply: buildBookingsReply(userContext, language),
       usedModel: false,
-      matchedKnowledge: [] as KnowledgeItem[],
+      matchedKnowledge: [],
+      language,
+      bookingCreated: false,
     };
   }
 
   if (intent.asksFlightStatus) {
-    const statusReply = buildFlightStatusReply(message, flights);
+    const statusReply = buildFlightStatusReply(message, flights, language);
     if (statusReply) {
       return {
         reply: statusReply,
         usedModel: false,
-        matchedKnowledge: [] as KnowledgeItem[],
+        matchedKnowledge: [],
+        language,
+        bookingCreated: false,
       };
     }
   }
 
   if (intent.asksFlights) {
     return {
-      reply: buildFlightsReply(message, flights),
+      reply: buildFlightsReply(message, flights, language),
       usedModel: false,
-      matchedKnowledge: [] as KnowledgeItem[],
+      matchedKnowledge: [],
+      language,
+      bookingCreated: false,
     };
   }
 
   const relevantKnowledge = await findRelevantKnowledge(supabase, message);
 
-  const cacheKey = `${userContext.authUser?.id || "anon"}::${message.toLowerCase().trim()}`;
+  const cacheKey = `${userContext.authUser?.id || "anon"}::${language}::${message
+    .toLowerCase()
+    .trim()}`;
   const cached = responseCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return {
       reply: cached.reply,
       usedModel: true,
       matchedKnowledge: relevantKnowledge,
+      language,
+      bookingCreated: false,
     };
   }
 
-  const reply = await callOpenAI(messages, relevantKnowledge, userContext, flights);
+  const reply = await callOpenAI(messages, relevantKnowledge, userContext, flights, language);
   responseCache.set(cacheKey, {
     reply,
     expiresAt: Date.now() + CACHE_TTL_MS,
@@ -609,6 +1032,8 @@ async function buildReply(
     reply,
     usedModel: true,
     matchedKnowledge: relevantKnowledge,
+    language,
+    bookingCreated: false,
   };
 }
 
@@ -622,10 +1047,11 @@ export async function POST(req: NextRequest) {
     }
 
     const latestUserMessage = [...messages].reverse().find((message) => message.sender === "user");
-
     if (!latestUserMessage?.text?.trim()) {
       return NextResponse.json({ error: "Latest user message is required" }, { status: 400 });
     }
+
+    const language = detectPreferredLanguage(messages);
 
     const supabase = await createClient();
     const [userContext, flights] = await Promise.all([
@@ -638,7 +1064,8 @@ export async function POST(req: NextRequest) {
       messages,
       supabase,
       userContext,
-      flights
+      flights,
+      language
     );
 
     const { error: logError } = await supabase.from("ai_chat_logs").insert({
@@ -657,6 +1084,8 @@ export async function POST(req: NextRequest) {
       meta: {
         usedModel: result.usedModel,
         timezone: APP_TIMEZONE,
+        language: result.language,
+        bookingCreated: result.bookingCreated,
       },
     });
   } catch (error) {
