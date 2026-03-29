@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { generateInvoiceNumber, generateTicketId } from "@/utils/generate-ids";
+import { createAdminClient } from "@/utils/supabase/admin";
 
 type ChatMessage = {
   sender: "user" | "bot" | "aiva";
@@ -738,6 +739,85 @@ function splitName(fullName: string) {
   };
 }
 
+type SeatReservationResult =
+  | { ok: true; previousAvailable: number }
+  | { ok: false; code: "flight_not_found" }
+  | { ok: false; code: "not_scheduled"; status: string }
+  | { ok: false; code: "insufficient_seats"; available: number }
+  | { ok: false; code: "seat_conflict" }
+  | { ok: false; code: "invalid_seat_data" };
+
+async function reserveFlightSeats(
+  userSupabase: Awaited<ReturnType<typeof createClient>>,
+  adminSupabase: ReturnType<typeof createAdminClient>,
+  flightId: string,
+  seatsNeeded: number
+): Promise<SeatReservationResult> {
+  const seatClient = adminSupabase ?? userSupabase;
+
+  const flightResponse = await seatClient
+    .from("flights")
+    .select("id, status, available_seats")
+    .eq("id", flightId)
+    .single();
+
+  if (flightResponse.error || !flightResponse.data) {
+    return { ok: false, code: "flight_not_found" };
+  }
+
+  const flightStatus = String(flightResponse.data.status || "unknown").toLowerCase();
+  if (flightStatus !== "scheduled") {
+    return { ok: false, code: "not_scheduled", status: flightStatus };
+  }
+
+  const currentAvailableSeats = Number(flightResponse.data.available_seats);
+  if (!Number.isFinite(currentAvailableSeats)) {
+    return { ok: false, code: "invalid_seat_data" };
+  }
+
+  if (currentAvailableSeats < seatsNeeded) {
+    return { ok: false, code: "insufficient_seats", available: currentAvailableSeats };
+  }
+
+  const nextAvailableSeats = currentAvailableSeats - seatsNeeded;
+  const seatUpdateResponse = await seatClient
+    .from("flights")
+    .update({ available_seats: nextAvailableSeats })
+    .eq("id", flightId)
+    .eq("available_seats", currentAvailableSeats)
+    .select("id");
+
+  if (
+    seatUpdateResponse.error ||
+    !seatUpdateResponse.data ||
+    seatUpdateResponse.data.length === 0
+  ) {
+    return { ok: false, code: "seat_conflict" };
+  }
+
+  return {
+    ok: true,
+    previousAvailable: currentAvailableSeats,
+  };
+}
+
+async function rollbackReservedSeats(
+  userSupabase: Awaited<ReturnType<typeof createClient>>,
+  adminSupabase: ReturnType<typeof createAdminClient>,
+  flightId: string,
+  previousAvailable: number
+) {
+  const seatClient = adminSupabase ?? userSupabase;
+  const rollback = await seatClient
+    .from("flights")
+    .update({ available_seats: previousAvailable })
+    .eq("id", flightId);
+
+  if (rollback.error) {
+    console.error("Seat rollback failed:", rollback.error);
+  }
+}
+
 async function tryCreateBookingFromMessage(
   message: string,
   lang: Language,
@@ -796,31 +876,70 @@ async function tryCreateBookingFromMessage(
   }
 
   const passengerCount = extractPassengerCount(message);
+  const adminSupabase = createAdminClient();
+  const reservation = await reserveFlightSeats(
+    supabase,
+    adminSupabase,
+    String(flight.id),
+    passengerCount
+  );
 
-  if (flight.status && String(flight.status).toLowerCase() !== "scheduled") {
+  if (!reservation.ok) {
+    if (reservation.code === "flight_not_found") {
+      return {
+        handled: true,
+        bookingCreated: false,
+        reply: pick(
+          lang,
+          `I could not find flight ${flightNumber} in current records.`,
+          `मुझे अभी के रिकॉर्ड में फ्लाइट ${flightNumber} नहीं मिली।`
+        ),
+      };
+    }
+
+    if (reservation.code === "not_scheduled") {
+      return {
+        handled: true,
+        bookingCreated: false,
+        reply: pick(
+          lang,
+          `Flight ${flightNumber} is currently ${reservation.status}. Booking is allowed only for scheduled flights.`,
+          `फ्लाइट ${flightNumber} की स्थिति अभी ${reservation.status} है। बुकिंग केवल scheduled flights के लिए है।`
+        ),
+      };
+    }
+
+    if (reservation.code === "insufficient_seats") {
+      return {
+        handled: true,
+        bookingCreated: false,
+        reply: pick(
+          lang,
+          `Only ${reservation.available} seats are available on ${flightNumber}, but you asked for ${passengerCount}.`,
+          `${flightNumber} में केवल ${reservation.available} सीट उपलब्ध हैं, जबकि आपने ${passengerCount} मांगी हैं।`
+        ),
+      };
+    }
+
+    if (reservation.code === "invalid_seat_data") {
+      return {
+        handled: true,
+        bookingCreated: false,
+        reply: pick(
+          lang,
+          "This flight has invalid seat inventory data. Please contact support.",
+          "इस फ्लाइट का seat inventory data गलत है। कृपया support से संपर्क करें।"
+        ),
+      };
+    }
+
     return {
       handled: true,
       bookingCreated: false,
       reply: pick(
         lang,
-        `Flight ${flightNumber} is currently ${flight.status}. Booking is allowed only for scheduled flights.`,
-        `फ्लाइट ${flightNumber} की स्थिति अभी ${flight.status} है। बुकिंग केवल scheduled flights के लिए है।`
-      ),
-    };
-  }
-
-  if (
-    typeof flight.available_seats === "number" &&
-    flight.available_seats > 0 &&
-    passengerCount > flight.available_seats
-  ) {
-    return {
-      handled: true,
-      bookingCreated: false,
-      reply: pick(
-        lang,
-        `Only ${flight.available_seats} seats are available on ${flightNumber}, but you asked for ${passengerCount}.`,
-        `${flightNumber} में केवल ${flight.available_seats} सीट उपलब्ध हैं, जबकि आपने ${passengerCount} मांगी हैं।`
+        "Seat availability changed while booking. Please try again.",
+        "बुकिंग के दौरान seat availability बदल गई। कृपया फिर प्रयास करें।"
       ),
     };
   }
@@ -846,6 +965,12 @@ async function tryCreateBookingFromMessage(
 
   if (bookingInsert.error || !bookingInsert.data) {
     console.error("Chat booking insert failed:", bookingInsert.error);
+    await rollbackReservedSeats(
+      supabase,
+      adminSupabase,
+      String(flight.id),
+      reservation.previousAvailable
+    );
     return {
       handled: true,
       bookingCreated: false,

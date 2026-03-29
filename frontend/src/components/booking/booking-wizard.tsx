@@ -41,6 +41,9 @@ export function BookingWizard({ flight, currentUser }: BookingWizardProps) {
     }, [])
 
     const handleConfirmBooking = async () => {
+        let reservedSeatSnapshot: { previous: number } | null = null
+        let createdBookingId: string | null = null
+
         try {
             console.log("Starting booking process...")
             setIsBooking(true)
@@ -52,9 +55,51 @@ export function BookingWizard({ flight, currentUser }: BookingWizardProps) {
                 return
             }
 
+            // Reserve seats from flight inventory first to avoid overbooking.
+            const { data: latestFlight, error: latestFlightError } = await supabase
+                .from('flights')
+                .select('status, available_seats, price')
+                .eq('id', flight.id)
+                .single()
+
+            if (latestFlightError || !latestFlight) {
+                alert("Could not verify live seat availability. Please try again.")
+                setIsBooking(false)
+                return
+            }
+
+            if (latestFlight.status !== 'scheduled') {
+                alert(`This flight is currently ${latestFlight.status}. Booking is allowed only for scheduled flights.`)
+                setIsBooking(false)
+                return
+            }
+
+            const currentAvailableSeats = Number(latestFlight.available_seats)
+            if (!Number.isFinite(currentAvailableSeats) || currentAvailableSeats < passengersCount) {
+                alert(`Only ${currentAvailableSeats || 0} seats are available right now.`)
+                setIsBooking(false)
+                return
+            }
+
+            const nextAvailableSeats = currentAvailableSeats - passengersCount
+            const { data: seatReserveRows, error: seatReserveError } = await supabase
+                .from('flights')
+                .update({ available_seats: nextAvailableSeats })
+                .eq('id', flight.id)
+                .eq('available_seats', currentAvailableSeats)
+                .select('id')
+
+            if (seatReserveError || !seatReserveRows || seatReserveRows.length === 0) {
+                alert("Seat availability changed while booking. Please refresh and try again.")
+                setIsBooking(false)
+                return
+            }
+
+            reservedSeatSnapshot = { previous: currentAvailableSeats }
+
             // 1. Create Booking
             console.log("Creating booking record...")
-            const totalPrice = flight.price * passengersCount
+            const totalPrice = Number(latestFlight.price ?? flight.price) * passengersCount
 
             // Generate unique ticket ID and invoice number
             const ticketId = generateTicketId()
@@ -77,11 +122,18 @@ export function BookingWizard({ flight, currentUser }: BookingWizardProps) {
 
             if (bookingError) {
                 console.error("Booking error:", bookingError)
+                if (reservedSeatSnapshot) {
+                    await supabase
+                        .from('flights')
+                        .update({ available_seats: reservedSeatSnapshot.previous })
+                        .eq('id', flight.id)
+                }
                 alert("Booking failed: " + bookingError.message)
                 setIsBooking(false)
                 return
             }
             console.log("Booking created:", booking.id)
+            createdBookingId = booking.id
 
             // 2. Add Passengers
             console.log("Adding passengers...")
@@ -135,6 +187,13 @@ export function BookingWizard({ flight, currentUser }: BookingWizardProps) {
             router.push('/user/my-tickets')
         } catch (err) {
             console.error("Unexpected booking error:", err)
+            if (reservedSeatSnapshot && !createdBookingId) {
+                const supabase = createClient()
+                await supabase
+                    .from('flights')
+                    .update({ available_seats: reservedSeatSnapshot.previous })
+                    .eq('id', flight.id)
+            }
             alert("An unexpected error occurred. Please try again.")
         } finally {
             setIsBooking(false)
