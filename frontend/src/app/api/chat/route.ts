@@ -45,6 +45,9 @@ const CACHE_TTL_MS = 2 * 60 * 1000;
 const SYSTEM_PROMPT = `
 You are AIVA (AeroVault Intelligent Virtual Assistant).
 You are professional, concise, helpful, and customer-first.
+Aerovault itself is the flight search and booking platform.
+Never direct users to external websites or third-party booking apps.
+When users ask for flights, availability, or booking, guide them to complete it inside Aerovault.
 Always prioritize grounded data provided in context over assumptions.
 If a requested value is unknown, say that clearly and offer the next best step.
 Keep responses compact and actionable.
@@ -135,6 +138,13 @@ function includesAny(text: string, tokens: string[]) {
   return tokens.some((token) => text.includes(token));
 }
 
+function sanitizeRoutePart(value: string) {
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/^[^a-z\u0900-\u097F]+|[^a-z\u0900-\u097F]+$/gi, "")
+    .trim();
+}
+
 function extractSearchTerms(message: string) {
   return Array.from(
     new Set(
@@ -210,8 +220,14 @@ function detectIntent(message: string) {
     "flights",
     "search",
     "available",
+    "travel",
+    "trip",
     "from ",
     " to ",
+    " se ",
+    " tak ",
+    "jana",
+    "jaana",
     "cheapest",
     "उड़ान",
     "फ्लाइट",
@@ -276,28 +292,65 @@ function extractPassengerCount(text: string) {
 }
 
 function extractRoute(text: string) {
-  const fromTo = text.match(/\bfrom\s+([a-z\s]+?)\s+to\s+([a-z\s]+)\b/i);
+  const fromTo = text.match(
+    /\bfrom\s+([a-z\u0900-\u097F\s]+?)\s+to\s+([a-z\u0900-\u097F\s]+?)(?:\s+(?:on|for|at|by|with|tonight|today|tomorrow|aaj|kal)\b|$)/i
+  );
   if (fromTo) {
     return {
-      source: fromTo[1].trim(),
-      destination: fromTo[2].trim(),
+      source: sanitizeRoutePart(fromTo[1]),
+      destination: sanitizeRoutePart(fromTo[2]),
     };
   }
 
-  const hindiRoute = text.match(/([\u0900-\u097Fa-z\s]+?)\s+से\s+([\u0900-\u097Fa-z\s]+?)\s+तक/i);
+  const hindiRoute = text.match(
+    /([\u0900-\u097Fa-z\s]+?)\s+से\s+([\u0900-\u097Fa-z\s]+?)(?:\s+(?:तक|जाना)\b|$)/i
+  );
   if (hindiRoute) {
     return {
-      source: hindiRoute[1].trim(),
-      destination: hindiRoute[2].trim(),
+      source: sanitizeRoutePart(hindiRoute[1]),
+      destination: sanitizeRoutePart(hindiRoute[2]),
     };
   }
 
-  const generic = text.match(/\b([a-z\s]{3,})\s+to\s+([a-z\s]{3,})\b/i);
+  const romanizedHindiRoute = text.match(
+    /\b([a-z\s]+?)\s+se\s+([a-z\s]+?)(?:\s+(?:tak|jana|jaana|travel|trip|flight|flights)(?:\s+hai)?\b|$)/i
+  );
+  if (romanizedHindiRoute) {
+    return {
+      source: sanitizeRoutePart(romanizedHindiRoute[1]),
+      destination: sanitizeRoutePart(romanizedHindiRoute[2]),
+    };
+  }
+
+  const generic = text.match(/\b([a-z\u0900-\u097F\s]{3,})\s+to\s+([a-z\u0900-\u097F\s]{3,})\b/i);
   if (generic) {
     return {
-      source: generic[1].trim(),
-      destination: generic[2].trim(),
+      source: sanitizeRoutePart(generic[1]),
+      destination: sanitizeRoutePart(generic[2]),
     };
+  }
+
+  return null;
+}
+
+function getLastMentionedRoute(messages: ChatMessage[], skipMessage?: string) {
+  const skip = (skipMessage ?? "").trim().toLowerCase();
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.sender !== "user" || !message.text?.trim()) {
+      continue;
+    }
+
+    const normalizedText = message.text.trim().toLowerCase();
+    if (skip && normalizedText === skip) {
+      continue;
+    }
+
+    const route = extractRoute(normalizeDigits(normalizedText));
+    if (route) {
+      return route;
+    }
   }
 
   return null;
@@ -504,7 +557,12 @@ function buildTimeReply(lang: Language) {
   );
 }
 
-function buildFlightsReply(message: string, flights: any[], lang: Language) {
+function buildFlightsReply(
+  message: string,
+  flights: any[],
+  lang: Language,
+  fallbackRoute?: { source: string; destination: string } | null
+) {
   if (!flights.length) {
     return pick(
       lang,
@@ -514,7 +572,7 @@ function buildFlightsReply(message: string, flights: any[], lang: Language) {
   }
 
   const text = normalizeDigits(message.toLowerCase());
-  const route = extractRoute(text);
+  const route = extractRoute(text) ?? fallbackRoute ?? null;
   let filtered = filterFlightsByRoute(flights, route);
 
   if (!filtered.length && route) {
@@ -619,6 +677,23 @@ function buildCompactFlightsContext(flights: any[]) {
     .join("\n");
 }
 
+function containsExternalBookingReferral(text: string) {
+  const normalized = text.toLowerCase();
+  return includesAny(normalized, [
+    "google flights",
+    "skyscanner",
+    "makemytrip",
+    "cleartrip",
+    "expedia",
+    "kayak",
+    "travel agency",
+    "other app",
+    "another app",
+    "other website",
+    "airline website",
+  ]);
+}
+
 function buildKnowledgeContext(items: KnowledgeItem[]) {
   if (!items.length) {
     return "No relevant custom knowledge found.";
@@ -643,8 +718,8 @@ async function callOpenAI(
   if (!apiKey) {
     return pick(
       language,
-      "I can still help with live flights, your bookings, and profile details. For open-ended questions, AI text generation is currently unavailable.",
-      "मैं live flights, आपकी bookings और profile details में मदद कर सकता हूं। Open-ended सवालों के लिए AI text generation अभी उपलब्ध नहीं है।"
+      "I can still help with live flights, your bookings, and profile details inside Aerovault. For open-ended questions, AI text generation is currently unavailable.",
+      "मैं Aerovault के अंदर live flights, आपकी bookings और profile details में मदद कर सकता हूं। Open-ended सवालों के लिए AI text generation अभी उपलब्ध नहीं है।"
     );
   }
 
@@ -663,6 +738,11 @@ async function callOpenAI(
       role: "system",
       content: `${SYSTEM_PROMPT}
 ${languageDirective}
+
+Product constraints:
+- Aerovault itself is the booking product.
+- Do not redirect users to external apps or websites.
+- If user asks to search/book flights, keep guidance inside Aerovault.
 
 Current date/time:
 - Date: ${nowContext.date}
@@ -1122,8 +1202,9 @@ async function buildReply(
   }
 
   if (intent.asksFlights) {
+    const fallbackRoute = getLastMentionedRoute(messages, message);
     return {
-      reply: buildFlightsReply(message, flights, language),
+      reply: buildFlightsReply(message, flights, language, fallbackRoute),
       usedModel: false,
       matchedKnowledge: [],
       language,
@@ -1147,7 +1228,15 @@ async function buildReply(
     };
   }
 
-  const reply = await callOpenAI(messages, relevantKnowledge, userContext, flights, language);
+  let reply = await callOpenAI(messages, relevantKnowledge, userContext, flights, language);
+  if (containsExternalBookingReferral(reply)) {
+    reply = pick(
+      language,
+      "I can help you search flights and book tickets directly inside Aerovault. Share your route, date/time, and passenger count, and I’ll continue here.",
+      "मैं आपकी flight search और ticket booking सीधे Aerovault के अंदर कर सकता हूं। अपना route, date/time और passenger count बताइए, मैं यहीं आगे बढ़ाता हूं।"
+    );
+  }
+
   responseCache.set(cacheKey, {
     reply,
     expiresAt: Date.now() + CACHE_TTL_MS,
